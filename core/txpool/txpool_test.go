@@ -18,6 +18,7 @@ package txpool
 
 import (
 	"crypto/ecdsa"
+	crand "crypto/rand"
 	"errors"
 	"fmt"
 	"math/big"
@@ -63,14 +64,15 @@ type testBlockChain struct {
 	chainHeadFeed *event.Feed
 }
 
-func (bc *testBlockChain) CurrentBlock() *types.Block {
-	return types.NewBlock(&types.Header{
+func (bc *testBlockChain) CurrentBlock() *types.Header {
+	return &types.Header{
+		Number:   new(big.Int),
 		GasLimit: atomic.LoadUint64(&bc.gasLimit),
-	}, nil, nil, nil, trie.NewStackTrie(nil))
+	}
 }
 
 func (bc *testBlockChain) GetBlock(hash common.Hash, number uint64) *types.Block {
-	return bc.CurrentBlock()
+	return types.NewBlock(bc.CurrentBlock(), nil, nil, nil, trie.NewStackTrie(nil))
 }
 
 func (bc *testBlockChain) StateAt(common.Hash) (*state.StateDB, error) {
@@ -92,7 +94,7 @@ func pricedTransaction(nonce uint64, gaslimit uint64, gasprice *big.Int, key *ec
 
 func pricedDataTransaction(nonce uint64, gaslimit uint64, gasprice *big.Int, key *ecdsa.PrivateKey, bytes uint64) *types.Transaction {
 	data := make([]byte, bytes)
-	rand.Read(data)
+	crand.Read(data)
 
 	tx, _ := types.SignTx(types.NewTransaction(nonce, common.Address{}, big.NewInt(0), gaslimit, gasprice, data), types.HomesteadSigner{}, key)
 	return tx
@@ -2422,141 +2424,337 @@ func TestSlotCount(t *testing.T) {
 
 // Benchmarks the speed of validating the contents of the pending queue of the
 // transaction pool.
-func BenchmarkPendingDemotion100(b *testing.B)   { benchmarkPendingDemotion(b, 100) }
-func BenchmarkPendingDemotion1000(b *testing.B)  { benchmarkPendingDemotion(b, 1000) }
-func BenchmarkPendingDemotion10000(b *testing.B) { benchmarkPendingDemotion(b, 10000) }
+// func BenchmarkPendingDemotion100(b *testing.B)   { benchmarkPendingDemotion(b, 100) }
+// func BenchmarkPendingDemotion1000(b *testing.B)  { benchmarkPendingDemotion(b, 1000) }
+// func BenchmarkPendingDemotion10000(b *testing.B) { benchmarkPendingDemotion(b, 10000) }
 
-func benchmarkPendingDemotion(b *testing.B, size int) {
-	// Add a batch of transactions to a pool one by one
-	pool, key := setupPool()
-	defer pool.Stop()
+// func benchmarkPendingDemotion(b *testing.B, size int) {
+// 	// Add a batch of transactions to a pool one by one
+// 	pool, key := setupPool()
+// 	defer pool.Stop()
 
-	account := crypto.PubkeyToAddress(key.PublicKey)
-	testAddBalance(pool, account, big.NewInt(1000000))
+// 	account := crypto.PubkeyToAddress(key.PublicKey)
+// 	testAddBalance(pool, account, big.NewInt(1000000))
 
-	for i := 0; i < size; i++ {
-		tx := transaction(uint64(i), 100000, key)
-		pool.promoteTx(account, tx.Hash(), tx)
-	}
-	// Benchmark the speed of pool validation
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		pool.demoteUnexecutables()
-	}
+// 	for i := 0; i < size; i++ {
+// 		tx := transaction(uint64(i), 100000, key)
+// 		pool.promoteTx(account, tx.Hash(), tx)
+// 	}
+// 	// Benchmark the speed of pool validation
+// 	b.ResetTimer()
+// 	for i := 0; i < b.N; i++ {
+// 		pool.demoteUnexecutables()
+// 	}
+// }
+
+// // Benchmarks the speed of scheduling the contents of the future queue of the
+// // transaction pool.
+// func BenchmarkFuturePromotion100(b *testing.B)   { benchmarkFuturePromotion(b, 100) }
+// func BenchmarkFuturePromotion1000(b *testing.B)  { benchmarkFuturePromotion(b, 1000) }
+// func BenchmarkFuturePromotion10000(b *testing.B) { benchmarkFuturePromotion(b, 10000) }
+
+// func benchmarkFuturePromotion(b *testing.B, size int) {
+// 	// Add a batch of transactions to a pool one by one
+// 	pool, key := setupPool()
+// 	defer pool.Stop()
+
+// 	account := crypto.PubkeyToAddress(key.PublicKey)
+// 	testAddBalance(pool, account, big.NewInt(1000000))
+
+// 	for i := 0; i < size; i++ {
+// 		tx := transaction(uint64(1+i), 100000, key)
+// 		pool.enqueueTx(tx.Hash(), tx, false, true)
+// 	}
+// 	// Benchmark the speed of pool validation
+// 	b.ResetTimer()
+// 	for i := 0; i < b.N; i++ {
+// 		pool.promoteExecutables(nil)
+// 	}
+// }
+
+// // Benchmarks the speed of batched transaction insertion.
+// func BenchmarkBatchInsert100(b *testing.B)   { benchmarkBatchInsert(b, 100, false) }
+// func BenchmarkBatchInsert1000(b *testing.B)  { benchmarkBatchInsert(b, 1000, false) }
+// func BenchmarkBatchInsert10000(b *testing.B) { benchmarkBatchInsert(b, 10000, false) }
+
+// func BenchmarkBatchLocalInsert100(b *testing.B)   { benchmarkBatchInsert(b, 100, true) }
+// func BenchmarkBatchLocalInsert1000(b *testing.B)  { benchmarkBatchInsert(b, 1000, true) }
+// func BenchmarkBatchLocalInsert10000(b *testing.B) { benchmarkBatchInsert(b, 10000, true) }
+
+// func benchmarkBatchInsert(b *testing.B, size int, local bool) {
+// 	// Generate a batch of transactions to enqueue into the pool
+// 	pool, key := setupPool()
+// 	defer pool.Stop()
+
+// 	account := crypto.PubkeyToAddress(key.PublicKey)
+// 	testAddBalance(pool, account, big.NewInt(1000000))
+
+// 	batches := make([]types.Transactions, b.N)
+// 	for i := 0; i < b.N; i++ {
+// 		batches[i] = make(types.Transactions, size)
+// 		for j := 0; j < size; j++ {
+// 			batches[i][j] = transaction(uint64(size*i+j), 100000, key)
+// 		}
+// 	}
+// 	// Benchmark importing the transactions into the queue
+// 	b.ResetTimer()
+// 	for _, batch := range batches {
+// 		if local {
+// 			pool.AddLocals(batch)
+// 		} else {
+// 			pool.AddRemotes(batch)
+// 		}
+// 	}
+// }
+
+// func BenchmarkInsertRemoteWithAllLocals(b *testing.B) {
+// 	// Allocate keys for testing
+// 	key, _ := crypto.GenerateKey()
+// 	account := crypto.PubkeyToAddress(key.PublicKey)
+
+// 	remoteKey, _ := crypto.GenerateKey()
+// 	remoteAddr := crypto.PubkeyToAddress(remoteKey.PublicKey)
+
+// 	locals := make([]*types.Transaction, 4096+1024) // Occupy all slots
+// 	for i := 0; i < len(locals); i++ {
+// 		locals[i] = transaction(uint64(i), 100000, key)
+// 	}
+// 	remotes := make([]*types.Transaction, 1000)
+// 	for i := 0; i < len(remotes); i++ {
+// 		remotes[i] = pricedTransaction(uint64(i), 100000, big.NewInt(2), remoteKey) // Higher gasprice
+// 	}
+// 	// Benchmark importing the transactions into the queue
+// 	b.ResetTimer()
+// 	for i := 0; i < b.N; i++ {
+// 		b.StopTimer()
+// 		pool, _ := setupPool()
+// 		testAddBalance(pool, account, big.NewInt(100000000))
+// 		for _, local := range locals {
+// 			pool.AddLocal(local)
+// 		}
+// 		b.StartTimer()
+// 		// Assign a high enough balance for testing
+// 		testAddBalance(pool, remoteAddr, big.NewInt(100000000))
+// 		for i := 0; i < len(remotes); i++ {
+// 			pool.AddRemotes([]*types.Transaction{remotes[i]})
+// 		}
+// 		pool.Stop()
+// 	}
+// }
+
+// // Benchmarks the speed of batch transaction insertion in case of multiple accounts.
+// func BenchmarkMultiAccountBatchInsert(b *testing.B) {
+// 	// Generate a batch of transactions to enqueue into the pool
+// 	pool, _ := setupPool()
+// 	defer pool.Stop()
+// 	b.ReportAllocs()
+// 	batches := make(types.Transactions, b.N)
+// 	for i := 0; i < b.N; i++ {
+// 		key, _ := crypto.GenerateKey()
+// 		account := crypto.PubkeyToAddress(key.PublicKey)
+// 		pool.currentState.AddBalance(account, big.NewInt(1000000))
+// 		tx := transaction(uint64(0), 100000, key)
+// 		batches[i] = tx
+// 	}
+// 	// Benchmark importing the transactions into the queue
+// 	b.ResetTimer()
+// 	for _, tx := range batches {
+// 		pool.AddRemotesSync([]*types.Transaction{tx})
+// 	}
+// }
+func pricedValuedTransaction(nonce uint64, value int64, gaslimit uint64, gasprice *big.Int, key *ecdsa.PrivateKey) *types.Transaction {
+	tx, _ := types.SignTx(types.NewTransaction(nonce, common.Address{}, big.NewInt(value), gaslimit, gasprice, nil), types.HomesteadSigner{}, key)
+	return tx
 }
 
-// Benchmarks the speed of scheduling the contents of the future queue of the
-// transaction pool.
-func BenchmarkFuturePromotion100(b *testing.B)   { benchmarkFuturePromotion(b, 100) }
-func BenchmarkFuturePromotion1000(b *testing.B)  { benchmarkFuturePromotion(b, 1000) }
-func BenchmarkFuturePromotion10000(b *testing.B) { benchmarkFuturePromotion(b, 10000) }
 
-func benchmarkFuturePromotion(b *testing.B, size int) {
-	// Add a batch of transactions to a pool one by one
-	pool, key := setupPool()
-	defer pool.Stop()
+func BenchmarkOverDraftNotFull1(b *testing.B)   { benchmarkOverDraftNotFull(b, 1) }
+func BenchmarkOverDraftNotFull10(b *testing.B)   { benchmarkOverDraftNotFull(b, 10) }
+func BenchmarkOverDraftNotFull100(b *testing.B)   { benchmarkOverDraftNotFull(b, 100) }
+func BenchmarkOverDraftNotFull1000(b *testing.B)   { benchmarkOverDraftNotFull(b, 1000) }
+func BenchmarkOverDraftNotFull2000(b *testing.B)   { benchmarkOverDraftNotFull(b, 2000) }
+func BenchmarkOverDraftNotFull3000(b *testing.B)   { benchmarkOverDraftNotFull(b, 3000) }
+func BenchmarkOverDraftNotFull4000(b *testing.B)   { benchmarkOverDraftNotFull(b, 4000) }
 
-	account := crypto.PubkeyToAddress(key.PublicKey)
-	testAddBalance(pool, account, big.NewInt(1000000))
-
-	for i := 0; i < size; i++ {
-		tx := transaction(uint64(1+i), 100000, key)
-		pool.enqueueTx(tx.Hash(), tx, false, true)
-	}
-	// Benchmark the speed of pool validation
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		pool.promoteExecutables(nil)
-	}
-}
-
-// Benchmarks the speed of batched transaction insertion.
-func BenchmarkBatchInsert100(b *testing.B)   { benchmarkBatchInsert(b, 100, false) }
-func BenchmarkBatchInsert1000(b *testing.B)  { benchmarkBatchInsert(b, 1000, false) }
-func BenchmarkBatchInsert10000(b *testing.B) { benchmarkBatchInsert(b, 10000, false) }
-
-func BenchmarkBatchLocalInsert100(b *testing.B)   { benchmarkBatchInsert(b, 100, true) }
-func BenchmarkBatchLocalInsert1000(b *testing.B)  { benchmarkBatchInsert(b, 1000, true) }
-func BenchmarkBatchLocalInsert10000(b *testing.B) { benchmarkBatchInsert(b, 10000, true) }
-
-func benchmarkBatchInsert(b *testing.B, size int, local bool) {
-	// Generate a batch of transactions to enqueue into the pool
-	pool, key := setupPool()
-	defer pool.Stop()
-
-	account := crypto.PubkeyToAddress(key.PublicKey)
-	testAddBalance(pool, account, big.NewInt(1000000))
-
-	batches := make([]types.Transactions, b.N)
-	for i := 0; i < b.N; i++ {
-		batches[i] = make(types.Transactions, size)
-		for j := 0; j < size; j++ {
-			batches[i][j] = transaction(uint64(size*i+j), 100000, key)
-		}
-	}
-	// Benchmark importing the transactions into the queue
-	b.ResetTimer()
-	for _, batch := range batches {
-		if local {
-			pool.AddLocals(batch)
-		} else {
-			pool.AddRemotes(batch)
-		}
-	}
-}
-
-func BenchmarkInsertRemoteWithAllLocals(b *testing.B) {
-	// Allocate keys for testing
-	key, _ := crypto.GenerateKey()
-	account := crypto.PubkeyToAddress(key.PublicKey)
-
-	remoteKey, _ := crypto.GenerateKey()
-	remoteAddr := crypto.PubkeyToAddress(remoteKey.PublicKey)
-
-	locals := make([]*types.Transaction, 4096+1024) // Occupy all slots
-	for i := 0; i < len(locals); i++ {
-		locals[i] = transaction(uint64(i), 100000, key)
-	}
-	remotes := make([]*types.Transaction, 1000)
-	for i := 0; i < len(remotes); i++ {
-		remotes[i] = pricedTransaction(uint64(i), 100000, big.NewInt(2), remoteKey) // Higher gasprice
-	}
-	// Benchmark importing the transactions into the queue
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		b.StopTimer()
-		pool, _ := setupPool()
-		testAddBalance(pool, account, big.NewInt(100000000))
-		for _, local := range locals {
-			pool.AddLocal(local)
-		}
-		b.StartTimer()
-		// Assign a high enough balance for testing
-		testAddBalance(pool, remoteAddr, big.NewInt(100000000))
-		for i := 0; i < len(remotes); i++ {
-			pool.AddRemotes([]*types.Transaction{remotes[i]})
-		}
-		pool.Stop()
-	}
-}
-
-// Benchmarks the speed of batch transaction insertion in case of multiple accounts.
-func BenchmarkMultiAccountBatchInsert(b *testing.B) {
-	// Generate a batch of transactions to enqueue into the pool
+func benchmarkOverDraftNotFull(b *testing.B, size int) {
+	// Generate a batch of overdraft transactions to add in the pool
 	pool, _ := setupPool()
 	defer pool.Stop()
-	b.ReportAllocs()
-	batches := make(types.Transactions, b.N)
-	for i := 0; i < b.N; i++ {
-		key, _ := crypto.GenerateKey()
-		account := crypto.PubkeyToAddress(key.PublicKey)
-		pool.currentState.AddBalance(account, big.NewInt(1000000))
-		tx := transaction(uint64(0), 100000, key)
-		batches[i] = tx
+
+	key, _ := crypto.GenerateKey()
+	account := crypto.PubkeyToAddress(key.PublicKey)
+	testAddBalance(pool, account, big.NewInt(1000000000000000000))
+
+	batch := make(types.Transactions, size)
+	for i := 0; i < size; i++ {
+		// PriceSet := big.NewInt(100000000000000000)
+		batch[i] = pricedValuedTransaction(uint64(i), int64(100000000000000000/size), 21000, big.NewInt(20000), key)
 	}
-	// Benchmark importing the transactions into the queue
+	pool.AddRemotes(batch)
+
+	
+	b.ReportAllocs()
+	// Benchmark the speed of pool check overdraft txs
 	b.ResetTimer()
-	for _, tx := range batches {
-		pool.AddRemotesSync([]*types.Transaction{tx})
+	for i := 0; i < b.N; i++ {
+		overDraftTxs := make(types.Transactions, 300)
+		for j := 0; j < 300; j++{
+			overDraftTxs[j] = pricedValuedTransaction(uint64(size), 910000000000000000, 21000, big.NewInt(20000), key)
+		}
+		pool.AddRemotes(overDraftTxs)
+	}
+}
+
+func BenchmarkNormalNotFull1(b *testing.B)   { benchmarkNormalNotFull(b, 1) }
+func BenchmarkNormalNotFull10(b *testing.B)   { benchmarkNormalNotFull(b, 10) }
+func BenchmarkNormalNotFull100(b *testing.B)   { benchmarkNormalNotFull(b, 100) }
+func BenchmarkNormalNotFull1000(b *testing.B)   { benchmarkNormalNotFull(b, 1000) }
+func BenchmarkNormalNotFull2000(b *testing.B)   { benchmarkNormalNotFull(b, 2000) }
+func BenchmarkNormalNotFull3000(b *testing.B)   { benchmarkNormalNotFull(b, 3000) }
+func BenchmarkNormalNotFull4000(b *testing.B)   { benchmarkNormalNotFull(b, 4000) }
+
+func benchmarkNormalNotFull(b *testing.B, size int) {
+	// Generate a batch of overdraft transactions to add in the pool
+	pool, _ := setupPool()
+	defer pool.Stop()
+
+	key, _ := crypto.GenerateKey()
+	account := crypto.PubkeyToAddress(key.PublicKey)
+	testAddBalance(pool, account, big.NewInt(1000000000000000000))
+
+	batch := make(types.Transactions, size)
+	for i := 0; i < size; i++ {
+		// PriceSet := big.NewInt(100000000000000000)
+		batch[i] = pricedValuedTransaction(uint64(i), int64(100000000000000000/size), 21000, big.NewInt(20000), key)
+	}
+	pool.AddRemotes(batch)
+
+	b.ReportAllocs()
+	// Benchmark the speed of pool check normal txs
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		NormalTxs := make(types.Transactions, 300)
+		for j := 0; j < 300; j++{
+			NormalTxs[j] = pricedValuedTransaction(uint64(size+i), 10000, 21000, big.NewInt(20000), key)
+		}
+		pool.AddRemotes(NormalTxs)	
+	}
+}
+
+func BenchmarkOverDraftFull1(b *testing.B)   { benchmarkOverDraftFull(b, 1) }
+func BenchmarkOverDraftFull10(b *testing.B)   { benchmarkOverDraftFull(b, 10) }
+func BenchmarkOverDraftFull100(b *testing.B)   { benchmarkOverDraftFull(b, 100) }
+func BenchmarkOverDraftFull1000(b *testing.B)   { benchmarkOverDraftFull(b, 1000) }
+func BenchmarkOverDraftFull2000(b *testing.B)   { benchmarkOverDraftFull(b, 2000) }
+func BenchmarkOverDraftFull3000(b *testing.B)   { benchmarkOverDraftFull(b, 3000) }
+func BenchmarkOverDraftFull4000(b *testing.B)   { benchmarkOverDraftFull(b, 4000) }
+
+func benchmarkOverDraftFull(b *testing.B, size int) {
+	// Generate a batch of overdraft transactions to add in the pool
+	pool, _ := setupPool()
+	defer pool.Stop()
+
+	key_Bob, _ := crypto.GenerateKey()
+	account_Bob := crypto.PubkeyToAddress(key_Bob.PublicKey)
+	testAddBalance(pool, account_Bob, big.NewInt(1000000000000000000))
+
+	// Send n valid txs with high gasprice from Bob.
+	batch := make(types.Transactions, size)
+	for i := 0; i < size; i++ {
+		// PriceSet := big.NewInt(100000000000000000)
+		batch[i] = pricedValuedTransaction(uint64(i), int64(100000000000000000/size), 21000, big.NewInt(20000), key_Bob)
+	}
+	pool.AddRemotes(batch)
+
+	// Send 4096-n valid txs with low gasprice from Cindy
+	NormalTxs := make(types.Transactions, int(pool.config.GlobalSlots)-size)
+	key_Cindy, _ := crypto.GenerateKey()
+	account_Cindy := crypto.PubkeyToAddress(key_Cindy.PublicKey)
+	testAddBalance(pool, account_Cindy, big.NewInt(1000000000000000000))
+	for j := 0; j < int(pool.config.GlobalSlots)-size; j++ {
+		NormalTxs[j] = pricedValuedTransaction(uint64(j), int64(100000000000000000/(int(pool.config.GlobalSlots)-size)), 21000, big.NewInt(300), key_Cindy)
+	}
+	pool.AddRemotes(NormalTxs)
+
+	// Send 1024 future txs from 1024/64 = 16 accounts
+	for i := 0; i < 16; i++ {
+		key_Alice, _ := crypto.GenerateKey()
+		account_Alice := crypto.PubkeyToAddress(key_Alice.PublicKey)
+		futureTxs := make(types.Transactions, int(pool.config.AccountQueue))
+		testAddBalance(pool, account_Alice, big.NewInt(1000000000000000000))
+		for j := 0; j < int(pool.config.AccountQueue); j++ {
+			futureTxs[j] = pricedTransaction(1000+uint64(j), 21000, big.NewInt(5000), key_Alice)
+		}
+		pool.AddRemotes(futureTxs)
+	}
+
+	b.ReportAllocs()
+	// Benchmark the speed of pool check overdraft txs
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		overDraftTxs := make(types.Transactions, 300)
+		for j := 0; j < 300; j++{
+			overDraftTxs[j] = pricedValuedTransaction(uint64(size), 910000000000000000, 21000, big.NewInt(20000), key_Bob)
+		}
+		pool.AddRemotes(overDraftTxs)
+	}
+}
+
+func BenchmarkNormalFull1(b *testing.B)   { benchmarkNormalFull(b, 1) }
+func BenchmarkNormalFull10(b *testing.B)   { benchmarkNormalFull(b, 10) }
+func BenchmarkNormalFull100(b *testing.B)   { benchmarkNormalFull(b, 100) }
+func BenchmarkNormalFull1000(b *testing.B)   { benchmarkNormalFull(b, 1000) }
+func BenchmarkNormalFull2000(b *testing.B)   { benchmarkNormalFull(b, 2000) }
+func BenchmarkNormalFull3000(b *testing.B)   { benchmarkNormalFull(b, 3000) }
+func BenchmarkNormalFull4000(b *testing.B)   { benchmarkNormalFull(b, 4000) }
+
+func benchmarkNormalFull(b *testing.B, size int) {
+	// Generate a batch of overdraft transactions to add in the pool
+	pool, _ := setupPool()
+	defer pool.Stop()
+
+	key_Bob, _ := crypto.GenerateKey()
+	account_Bob := crypto.PubkeyToAddress(key_Bob.PublicKey)
+	testAddBalance(pool, account_Bob, big.NewInt(1000000000000000000))
+
+	// Send n valid txs with high gasprice from Bob.
+	batch := make(types.Transactions, size)
+	for i := 0; i < size; i++ {
+		// PriceSet := big.NewInt(100000000000000000)
+		batch[i] = pricedValuedTransaction(uint64(i), int64(100000000000000000/size), 21000, big.NewInt(20000), key_Bob)
+	}
+	pool.AddRemotes(batch)
+
+	// Send 5120-n valid txs with low gasprice from Cindy
+	NormalTxs := make(types.Transactions, int(pool.config.GlobalSlots)-size)
+	key_Cindy, _ := crypto.GenerateKey()
+	account_Cindy := crypto.PubkeyToAddress(key_Cindy.PublicKey)
+	testAddBalance(pool, account_Cindy, big.NewInt(1000000000000000000))
+	for j := 0; j < int(pool.config.GlobalSlots)-size; j++ {
+		NormalTxs[j] = pricedValuedTransaction(uint64(j), int64(100000000000000000/(int(pool.config.GlobalSlots)-size)), 21000, big.NewInt(300), key_Cindy)
+	}
+	pool.AddRemotes(NormalTxs)
+
+	// Send 1024 future txs from 1024/64 = 16 accounts
+	for i := 0; i < 16; i++ {
+		key_Alice, _ := crypto.GenerateKey()
+		account_Alice := crypto.PubkeyToAddress(key_Alice.PublicKey)
+		futureTxs := make(types.Transactions, int(pool.config.AccountQueue))
+		testAddBalance(pool, account_Alice, big.NewInt(1000000000000000000))
+		for j := 0; j < int(pool.config.AccountQueue); j++ {
+			futureTxs[j] = pricedTransaction(1000+uint64(j), 21000, big.NewInt(5000), key_Alice)
+		}
+		pool.AddRemotes(futureTxs)
+	}
+	
+	b.ReportAllocs()
+	// Benchmark the speed of pool check normal txs
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		NormalTxs := make(types.Transactions, 300)
+		for j := 0; j < 300; j++{
+			NormalTxs[j] = pricedValuedTransaction(uint64(size+i), 10000, 21000, big.NewInt(20000), key_Bob)
+		}
+		pool.AddRemotes(NormalTxs)	
 	}
 }
